@@ -64,6 +64,8 @@ Section names MUST match `[a-zA-Z_][a-zA-Z0-9_]*`. The section name is the ident
 
 A parser MUST reject a document containing a section name that does not match `[a-zA-Z_][a-zA-Z0-9_]*` or duplicates an existing section name.
 
+Every section except the root content section MUST be reachable via a reference chain starting from the root content. A parser MUST reject a document containing any section that is not reachable.
+
 Encoders choose section names freely within these constraints. How an encoder derives a section name from a JSON key is an implementation detail not prescribed by this spec.
 
 ## Data Types
@@ -201,6 +203,10 @@ A parser MUST distinguish reference types as follows:
 
 A parser MUST reject a document containing a reference that cannot be resolved — an `@N` with no matching pk, or an `@name` with no matching section.
 
+A reference MAY target a section or row that appears later in the document; forward references are valid.
+
+A parser MUST detect and reject circular references — a reference chain where resolving a value leads back to a row or section already in the resolution chain.
+
 ### Section Naming Constraint
 
 Section names MUST start with a letter or underscore (`[a-zA-Z_][a-zA-Z0-9_]*`). This prevents purely numeric names (e.g. `42`) that would be ambiguous with row reference syntax — `@42` always resolves as a row pk lookup, making any purely numeric section name unreachable via a section reference.
@@ -242,10 +248,11 @@ id,name
 ### NORM to JSON
 
 1. Read the root declaration to determine the output type
-2. If `:root`, the first section MUST contain at most one row — multiple rows would imply multiple root objects, which has no JSON equivalent; a parser MUST reject the document if the first section contains more than one row
-3. If `:root`, reconstruct the single row of the first section as a JSON object (`{}` if no rows); if `:root[]`, reconstruct the first section as a JSON array
-4. For each `@N` reference, locate the row with that `pk` and reconstruct as a JSON object
-5. For each `@name` reference where `:name` is a table section, reconstruct all rows as a JSON array of objects
-6. For each `@name` reference where `:name[]` is an array section, emit each row value as a JSON array element, recursively resolving any references
-7. For each `@[]` reference, emit an empty JSON array `[]`
-8. Map typed values to JSON: quoted value → string, bare number → number, `true`/`false` → boolean, `null` → null, empty cell → omit key
+2. If `:root`, the first section MUST be a table section — a parser MUST reject the document if the first section is an array section (`:name[]`)
+3. If `:root`, the first section MUST contain at most one row — multiple rows would imply multiple root objects, which has no JSON equivalent; a parser MUST reject the document if the first section contains more than one row
+4. If `:root`, reconstruct the single row of the first section as a JSON object (`{}` if no rows); if `:root[]`, reconstruct the first section as a JSON array
+5. For each `@N` reference, locate the row with that `pk` and reconstruct as a JSON object
+6. For each `@name` reference where `:name` is a table section, reconstruct all rows as a JSON array of objects
+7. For each `@name` reference where `:name[]` is an array section, emit each row value as a JSON array element, recursively resolving any references
+8. For each `@[]` reference, emit an empty JSON array `[]`
+9. Map typed values to JSON: quoted value → string, bare number → number, `true`/`false` → boolean, `null` → null, empty cell → omit key
