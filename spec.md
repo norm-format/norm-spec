@@ -25,7 +25,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY in this document are t
 
 NORM files MUST be encoded as UTF-8 without BOM. Files containing a UTF-8 BOM are invalid and a parser MUST reject them.
 
-Line endings: LF (`\n`) SHOULD be used. Parsers MUST accept CRLF (`\r\n`) by stripping the `\r` before processing. Encoders SHOULD emit LF.
+Line endings: LF (`\n`) SHOULD be used. Parsers MUST accept CRLF (`\r\n`) line terminators by treating the `\r` that immediately precedes a line-terminating LF as part of the terminator and discarding it. CR and CRLF byte sequences appearing inside a CSV-quoted string MUST be preserved verbatim. A `\r` byte that appears outside a CSV-quoted string and is not immediately followed by LF is invalid; a parser MUST reject such input. Encoders SHOULD emit LF.
 
 Null bytes (`\x00`) MUST NOT appear in a NORM file. A parser MUST reject any file containing a null byte.
 
@@ -87,9 +87,14 @@ Strings MUST be quoted when their unquoted form would be parsed as another type:
 
 - Looks like a number: `"42"`, `"-3.14"`
 - Is a keyword: `"true"`, `"false"`, `"null"`
-- Starts with `@`: `"@1"`, `"@tags"`
+- Starts with `@` (reference syntax, in any cell): `"@1"`, `"@tags"`
 
-An empty quoted string `""` encodes a JSON empty string value — it is distinct from an empty cell, which encodes an absent key.
+Additionally, a string whose first character is `:` or `#` MUST be CSV-quoted when it appears as the first cell of a header row, the first cell of a data row, or the sole cell of an array-section row — otherwise the line would be dispatched as a section header (`:`) or a whole-line comment (`#`). In other cell positions these characters are literal and need no quoting.
+
+- First-cell values requiring quoting: `":wq"`, `"# fine"`
+- Mid-row values that do not require quoting: `foo,:bar,#baz`
+
+An empty quoted string `""` encodes a JSON empty string value — it is distinct from an empty cell, which encodes an absent key. Header cells follow the same quoting rules as data cells; an empty-string key MUST be encoded as the CSV-quoted empty string `""` in the header row, never as an empty cell.
 
 Bare numbers MUST conform to JSON number syntax (RFC 8259 §6). Values such as `+42`, `1.`, or `NaN` are not valid bare numbers and MUST be treated as strings, requiring quoting.
 
@@ -111,7 +116,20 @@ pk,street,city,zipcode
 2,Victor Plains,Wisokyburgh,90566-7771
 ```
 
-If rows in the section are referenced by other sections, the first column MUST be named `pk` containing the row's primary key value. The `pk` column is structural — a parser MUST exclude it when reconstructing JSON objects. Duplicate column names in the header row are permitted; if a JSON object contains a key named `pk`, the header will contain two `pk` columns and the parser MUST treat only the first as structural.
+Every header row and every data row MUST contain at least one non-empty cell — otherwise the line is indistinguishable from the blank-line section separator. When this invariant would be violated (e.g. an array of empty objects, or an empty object nested within a heterogeneous section), an encoder MUST insert a structural `pk` column; see §Primary Keys.
+
+```
+:root[]
+
+:items
+pk
+1
+2
+```
+
+Reconstructs as `[{}, {}]`.
+
+When a structural `pk` column is present (see §Primary Keys for when one is required), it MUST be the first column of the header row. The `pk` column is structural — a parser MUST exclude it when reconstructing JSON objects. Duplicate column names in the header row are permitted; if a JSON object in the section contains a key named `pk`, the header MUST contain two `pk` columns (the first structural, the second a data column) and the parser MUST treat only the first as structural. This rule applies to every table section where object data contains a `pk` key, including the root content section.
 
 ### Heterogeneous Schemas
 
@@ -172,7 +190,13 @@ Primary keys uniquely identify rows within the document for cross-referencing.
 
 - **Format:** one or more digits with no leading zeros — `1`, `42`, `1000`; a parser MUST reject any pk value containing a leading zero
 - **Scope:** globally unique across the entire document — a parser MUST reject any document where the same pk value appears more than once across all table sections
-- **Required:** only when a section's rows are referenced by other sections
+- **Required:** a table section MUST include a structural `pk` column when any of the following apply:
+    - One or more rows are the target of an `@N` reference
+    - The union of keys across the section's objects is empty (the header would otherwise be a blank line), e.g. `[{}, {}]` or a root `{}`
+    - One or more data rows would otherwise consist entirely of empty cells (the row would be indistinguishable from the section-separating blank line), e.g. `[{"a": 1}, {}]`
+    - A JSON object in the section contains a key named `pk` (the data key shadows the structural column unless a duplicate `pk` header is present; see §Table Sections), e.g. a root object `{"pk": "ABC-123"}`
+
+  When a section has a structural `pk` column, every data row MUST carry a valid digit pk value, regardless of whether the row is referenced elsewhere.
 
 ## References
 
@@ -213,7 +237,7 @@ Section names MUST start with a letter or underscore (`[a-zA-Z_][a-zA-Z0-9_]*`).
 
 ### Quoting Constraint
 
-A string value that begins with `@` MUST be quoted to avoid conflict with reference syntax: `"@1"`, `"@tags"`.
+String values that would otherwise be misread as a reference (`@`-prefixed), a section header (`:` as first cell), or a whole-line comment (`#` as first cell) MUST be CSV-quoted. See §Data Types for the complete quoting rules.
 
 ## Comments
 
@@ -221,7 +245,7 @@ Comments are discarded during JSON conversion and are not round-tripped. Three c
 
 - **Whole-line comments** — a line where `#` is the first non-whitespace character; the entire line is discarded. The optional document version declaration `# norm 0.1` MAY appear as the first line of a `.norm` file; parsers MAY use it to identify the spec version the document targets
 - **Inline comments on structural lines** — anything from `#` to end-of-line on a root declaration or section header line is discarded
-- **Data rows** — inline comments are not permitted; `#` in a data row is treated as part of the value and MUST appear inside a quoted string if it is string data
+- **Data rows** — inline comments are not permitted; `#` anywhere in a data row is a literal character. A string value starting with `#` as the first cell of a row MUST be CSV-quoted to avoid being misread as a whole-line comment; see §Data Types
 
 ```
 # User data exported 2026-04-03
@@ -237,7 +261,7 @@ id,name
 
 1. Emit the root declaration — `:root` or `:root[]`
 2. Traverse the full JSON tree and identify all nested objects and arrays
-3. Assign globally unique `pk` values to all rows that will be referenced by `@N` references
+3. Assign globally unique `pk` values to all rows in sections that require a structural `pk` column per §Primary Keys
 4. Substitute nested single-object field values with `@N` references
 5. Substitute nested array-of-objects field values with `@name` references; emit the objects as a named table section
 6. Substitute nested array field values with `@name` references; emit the array as a named array section, recursively substituting any non-scalar elements
