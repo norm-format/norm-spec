@@ -82,12 +82,13 @@ Values map directly to JSON types:
 | `@N` | object | `@1` |
 | `@name` | array | `@items`, `@tags` |
 | `@[]` | empty array | `@[]` |
+| `@{}` | empty object | `@{}` |
 
 Strings MUST be quoted when their unquoted form would be parsed as another type:
 
 - Looks like a number: `"42"`, `"-3.14"`
 - Is a keyword: `"true"`, `"false"`, `"null"`
-- Starts with `@` (reference syntax, in any cell): `"@1"`, `"@tags"`
+- Starts with `@` (reference syntax, in any cell): `"@1"`, `"@tags"`, `"@[]"`, `"@{}"`
 
 Additionally, a string whose first character is `:` or `#` MUST be CSV-quoted when it appears as the first cell of a header row, the first cell of a data row, or the sole cell of an array-section row — otherwise the line would be dispatched as a section header (`:`) or a whole-line comment (`#`). In other cell positions these characters are literal and need no quoting.
 
@@ -207,21 +208,37 @@ A reference is an unquoted cell value beginning with `@`. There are three forms:
 | `@N` | Row with `pk=N` in any table section | `@1` |
 | `@name` | Section named `:name` (table) or `:name[]` (array) | `@items`, `@tags` |
 | `@[]` | Empty array | `@[]` |
+| `@{}` | Empty object | `@{}` |
 
 The reference form in the parent cell encodes the original JSON type:
 
 | Parent cell | Original JSON |
 |-------------|---------------|
-| `@1` | `"address": {}` |
+| `@1` | `"address": {"city": "Gwenborough"}` |
 | `@items` (`:items` table section) | `"items": [{},{}]` |
 | `@tags` (`:tags[]` array section) | `"tags": ["admin","user"]` |
 | `@[]` | `"employees": []` |
+| `@{}` | `"meta": {}` |
+
+Encoders MUST emit `@{}` for any cell whose value is an empty JSON object.
+
+```
+:root
+:data
+name,meta
+Alice,@{}
+```
+
+Reconstructs as `{"name": "Alice", "meta": {}}`.
+
+`@{}` is also valid as a row value in an array section — for example, an empty-object element in a heterogeneous array such as `[{}, "x", 42]`.
 
 ### Reference Resolution
 
 A parser MUST distinguish reference types as follows:
 
 - If the value is `@[]` → emit an empty JSON array `[]`
+- If the value is `@{}` → emit an empty JSON object `{}`
 - If the value after `@` consists only of digits → row reference; resolve by searching all table sections for a matching `pk` value; reconstruct as a JSON object
 - Otherwise → section reference; if a table section `:name` exists, reconstruct all its rows as a JSON array of objects; if an array section `:name[]` exists, emit its values as a JSON array, recursively resolving any references
 
@@ -262,12 +279,13 @@ id,name
 1. Emit the root declaration — `:root` or `:root[]`
 2. Traverse the full JSON tree and identify all nested objects and arrays
 3. Assign globally unique `pk` values to all rows in sections that require a structural `pk` column per §Primary Keys
-4. Substitute nested single-object field values with `@N` references
-5. Substitute nested array-of-objects field values with `@name` references; emit the objects as a named table section
-6. Substitute nested array field values with `@name` references; emit the array as a named array section, recursively substituting any non-scalar elements
-7. Emit the root section header followed by the root content rows with all substitutions applied; quote string values inline as each value is emitted
-8. Emit each nested table section header followed by its rows; quote string values inline as each value is emitted
-9. Emit each array section header followed by its values; quote string values inline as each value is emitted
+4. Substitute nested empty-object field values with `@{}` references; do not emit a section
+5. Substitute nested non-empty single-object field values with `@N` references; emit the object as a named table section
+6. Substitute nested array-of-objects field values with `@name` references; emit the objects as a named table section
+7. Substitute nested array field values with `@name` references; emit the array as a named array section, recursively substituting any non-scalar elements
+8. Emit the root section header followed by the root content rows with all substitutions applied; quote string values inline as each value is emitted
+9. Emit each nested table section header followed by its rows; quote string values inline as each value is emitted
+10. Emit each array section header followed by its values; quote string values inline as each value is emitted
 
 ### NORM to JSON
 
@@ -278,5 +296,6 @@ id,name
 5. For each `@N` reference, locate the row with that `pk` and reconstruct as a JSON object
 6. For each `@name` reference where `:name` is a table section, reconstruct all rows as a JSON array of objects
 7. For each `@name` reference where `:name[]` is an array section, emit each row value as a JSON array element, recursively resolving any references
-8. For each `@[]` reference, emit an empty JSON array `[]`
-9. Map typed values to JSON: quoted value → string, bare number → number, `true`/`false` → boolean, `null` → null, empty cell → omit key
+8. For each `@{}` reference, emit an empty JSON object `{}`
+9. For each `@[]` reference, emit an empty JSON array `[]`
+10. Map typed values to JSON: quoted value → string, bare number → number, `true`/`false` → boolean, `null` → null, empty cell → omit key

@@ -18,7 +18,7 @@ The grammar must cover:
 - Section headers (table and primitive array)
 - Header rows and data rows
 - CSV value rules (quoted strings, bare values, empty cells)
-- Reference syntax (`@rN`, `@[rN|...]`, `@name`)
+- Reference syntax (`@N`, `@name`, `@[]`, `@{}`)
 - Comment syntax (whole-line and inline)
 - Value types: string, number, boolean, null, empty
 - Whitespace and line ending rules
@@ -55,7 +55,7 @@ section         = table-section / prim-section
 
 table-section   = table-header line-end
                   header-row line-end
-                  1*(data-row line-end)
+                  *(data-row line-end)
 
 table-header    = ":" section-name [inline-comment]
 
@@ -64,9 +64,9 @@ prim-section    = prim-header line-end
 
 prim-header     = ":" section-name "[]" [inline-comment]
 
-; Section names are restricted to [a-zA-Z0-9_].
-; A section-name MUST NOT match the pattern: "r" 1*DIGIT
-section-name    = 1*(ALPHA / DIGIT / "_")
+; Section names start with a letter or underscore, followed by alphanumeric
+; or underscore. Purely numeric names are unreachable via section reference.
+section-name    = (ALPHA / "_") *(ALPHA / DIGIT / "_")
 
 ; ------------------------------------------------------------
 ; Rows
@@ -98,11 +98,12 @@ escaped-quote   = DQUOTE DQUOTE  ; "" encodes a literal "
 ; ------------------------------------------------------------
 
 ; A reference MUST NOT be quoted; a quoted @-string is a string literal.
-reference       = "@" (array-ref / row-ref / named-ref)
+reference       = "@" (empty-array / empty-object / row-ref / named-ref)
 
-row-ref         = "r" 1*DIGIT
-array-ref       = "[" row-ref *("|" row-ref) "]"
-named-ref       = section-name   ; MUST NOT match "r" 1*DIGIT
+empty-array     = "[]"
+empty-object    = "{}"
+row-ref         = NZDIGIT *DIGIT  ; pk value, no leading zeros
+named-ref       = section-name
 
 ; ------------------------------------------------------------
 ; Bare values

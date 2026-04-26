@@ -8,8 +8,8 @@ This repository hosts the specification for NORM (Normalised Object Relational M
 |------|---------|
 | `spec.md` | Authoritative prose specification |
 | `abnf.md` | ABNF grammar work-in-progress (deferred until encoder/decoder exist) |
-| `users.json` | Example JSON input for format exploration |
-| `users-edit.json` | Variant example JSON |
+| `fixtures/` | Paired JSON and NORM example files for round-trip validation |
+| `LICENSE` | Repository licence |
 
 ## Spec Conventions
 
@@ -36,6 +36,7 @@ A NORM document has a root declaration (`:root` or `:root[]`) followed by sectio
 | `@N` | Row with `pk=N` in any table section (reconstructs as object) |
 | `@name` | Section named `:name` or `:name[]` |
 | `@[]` | Empty array |
+| `@{}` | Empty object |
 
 ### Primary Keys
 
@@ -54,6 +55,8 @@ A NORM document has a root declaration (`:root` or `:root[]`) followed by sectio
 | empty cell | absent key (not null) |
 | `@N` | nested object |
 | `@name` | nested array |
+| `@[]` | empty array |
+| `@{}` | empty object |
 
 ## Editing Guidelines
 

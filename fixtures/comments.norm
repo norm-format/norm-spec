@@ -3,6 +3,6 @@
 :root[]          # root is an array
 # Section follows
 :data            # main data section
-pk,name,type
-1,Sol,star
-2,Earth,planet
+name,type
+Sol,star
+Earth,planet
