@@ -148,6 +148,52 @@ The closed issues #1 (spec gaps) and #2 (`@{}` sigil) are already reflected in t
 
    Resolution: inline literals are valid as either (i) a cell in a table-section row or (ii) the sole value of an array-section row. The §Inline Object Literal subsection MUST state both positions explicitly and include one short array-section example.
 
+4. Array-section empty-row rule unaddressed under proposal A (gap) — Resolved: rewrite §Array Sections to defer to the no-op blank-line rule.
+
+   Spec line 161 currently reads "Empty rows are not permitted — a parser MUST reject any array section containing an empty row." This rule was written when blank lines were section separators: an empty line inside an array section was a syntax error rather than a separator. Under proposal A, blank lines outside CSV-quoted strings are no-op whitespace, so an "empty row" in an array section is no longer distinguishable from the no-op blank line that the new rule explicitly permits. Requirement 2 reframes the table-section empty-row rule with the new justification, but leaves the array-section rule untouched.
+
+   Without addressing this, the spec contains directly contradictory rules: blank lines are no-ops (per the amended §Document Structure) AND parsers MUST reject any array section containing an empty row (per the unchanged §Array Sections). Implementers will be unsure whether to discard or reject blank lines that appear between values in an array section.
+
+   Resolution: extend Requirement 2 so it covers §Array Sections as well as §Table Sections. Rewrite the §Array Sections empty-row sentence to read approximately: "An array section row MUST contain at least one non-whitespace character outside CSV quoting. Any line consisting solely of whitespace is a no-op blank line per §Document Structure, regardless of whether it appears between sections or between rows of a section. Encoders SHOULD NOT emit blank lines inside an array section; parsers MUST treat such lines as no-ops." Add a corresponding Acceptance Criteria bullet: "§Array Sections no longer rejects empty rows; the corresponding behaviour is governed by the no-op blank-line rule in §Document Structure."
+
+5. Whitespace handling inside inline literals underspecified (gap) — Resolved: permit and trim whitespace at all internal positions; allow trailing whitespace after `}`.
+
+   Requirement 4 says "Whitespace handling inside the literal is specified explicitly (mirror the existing trim-unquoted-whitespace rule for scalar cells)." but does not enumerate the positions where whitespace is allowed. The spec needs a concrete answer for each of:
+    - Whitespace around `=` (e.g., `{ key = value }`)
+    - Whitespace around the comma between key/value pairs (e.g., `{a=1 , b=2}`)
+    - Whitespace immediately inside `{` or before `}` (e.g., `{ a=1 }`)
+    - Whitespace between the closing `}` and the next CSV cell delimiter or end-of-line (e.g., `{a=1} ,Bob` vs the implication of "the literal ends at the matching `}`, which MUST be followed by a `,` or end-of-line")
+
+   Without explicit rules, encoders and parsers will diverge on whitespace handling, producing documents that one tool accepts and another rejects. The "mirror the trim rule" pointer is not enough — the existing scalar trim rule applies to a single token per cell, whereas an inline literal has multiple internal token boundaries.
+
+   Resolution: extend Requirement 4 to enumerate the trim rule for every internal position, and amend Requirement 5 so the post-`}` position is explicit.
+
+   Requirement 4 wording: "Whitespace handling inside an inline literal mirrors the trim-unquoted-whitespace rule of §Data Types: each unquoted key and each unquoted value has its leading and trailing whitespace trimmed. Specifically, leading and trailing whitespace is permitted around `{`, around `}`, around `=`, and around the inter-pair `,`. CSV-quoted string values preserve interior whitespace verbatim. A key or value that requires surrounding whitespace MUST be CSV-quoted; keys cannot be CSV-quoted, so a key requiring surrounding whitespace is not representable as an inline literal — the encoder MUST emit a section."
+
+   Requirement 5 amendment: replace "the literal ends at the matching unquoted `}`, which MUST be followed by a `,` or end-of-line" with "the literal ends at the matching unquoted `}`. The `}` MAY be followed by trailing whitespace; the next non-whitespace character MUST be the next CSV cell delimiter (`,`) or the end-of-line."
+
+   The §Inline Object Literal subsection MUST include one example demonstrating whitespace tolerance, e.g., `{ id = 1 , name = "Alice" }` reconstructing to `{"id": 1, "name": "Alice"}`.
+
+6. Non-identifier JSON keys not listed as encoder disqualifier (gap) — Resolved: lift the key grammar into the disqualification list.
+
+   Requirement 4's encoder disqualification list reads "Nested objects (including `{}`/`@{}` as a value), arrays, and `@N`/`@name` references inside the literal disqualify the form; encoders MUST emit a section instead." A JSON object whose keys do not match `[a-zA-Z_][a-zA-Z0-9_]*` (e.g., `"first-name"`, `""`, `"123"`, `"x.y"`) also cannot be encoded as an inline literal — the literal grammar restricts keys to identifier shape.
+
+   The constraint exists ("Keys MUST match `[a-zA-Z_][a-zA-Z0-9_]*`"), but the disqualification list is what an implementer reads as the encoder branch checklist. Omitting non-identifier keys from that list invites encoder bugs that produce invalid literals, or silent data loss if the encoder strips offending keys to make the form fit.
+
+   Resolution: rewrite Requirement 4's disqualification clause as a single MUST-emit-section list that covers both value-side and key-side constraints. Suggested wording:
+
+   "Encoders MUST emit a section instead of an inline literal when any of the following apply to the JSON object:
+    - One or more values is not a JSON scalar (string, number, boolean, or null) — i.e. a value is itself an object, an array, or would otherwise serialise as `{}`/`@{}`/`@N`/`@name`/`@[]`.
+    - One or more keys does not match `[a-zA-Z_][a-zA-Z0-9_]*`."
+
+   The parser-side validity rule (already in Requirement 4) is unaffected — parsers continue to reject literals with non-identifier keys as a syntactic error. No new normative constraint is introduced; this is a clarity and discoverability improvement.
+
+7. §Array Sections value-type list not updated for inline literals (gap) — Resolved: update §Array Sections in place with a cross-reference.
+
+   §Array Sections currently states "Values may be scalars or references" (spec.md line 161 prose). Requirement 14 permits inline literals as the sole value of an array-section row, and Issues Discovered #3 captures the resolution, but the project does not require updating §Array Sections itself to enumerate inline literals as a third value type. A reader scanning §Array Sections in isolation will conclude that scalars and references are exhaustive and miss the inline-literal extension.
+
+   Resolution: extend Requirement 14 with a sub-bullet that updates §Array Sections so its value-type sentence reads "Values may be scalars, references, or inline object literals (see §Inline Object Literal)." The detailed rules for inline literals stay in §Inline Object Literal; this is a cross-reference, not a duplication. Add a corresponding Acceptance Criteria bullet: "§Array Sections enumerates inline object literals alongside scalars and references as valid row values, with a cross-reference to §Inline Object Literal."
+
 ## Acceptance Criteria
 
 - `spec.md` no longer contains the sentence "Sections are separated by blank lines." or any prose that depends on a blank-line section separator.
